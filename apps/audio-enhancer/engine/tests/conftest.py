@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import subprocess
 import sys
 import tempfile
 import threading
 from typing import Any
+
+os.environ.setdefault("AUDIO_ENHANCER_HANG_DUMP", "8")
 
 
 class EngineClient:

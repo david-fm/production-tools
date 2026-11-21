@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-14]
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     defaults:
@@ -74,7 +74,7 @@ jobs:
 
   e2e:
     # Interfaz real + motor real en Chromium (la capa de Tauri se sustituye por mocks; ver apps/audio-enhancer/e2e).
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 30
     defaults:
       run:

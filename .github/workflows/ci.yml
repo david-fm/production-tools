@@ -64,7 +64,13 @@ jobs:
         run: pnpm build
       - name: Shell Rust - cargo test
         working-directory: apps/audio-enhancer/src-tauri
-        run: cargo test --locked
+        shell: bash
+        run: |
+          # tauri-build exige que existan los externalBin; aquí solo se compila (el ffmpeg real se
+          # empaqueta y prueba en build-audio-enhancer.yml), así que bastan marcadores de posición.
+          triple=$(rustc -vV | sed -n 's/^host: //p'); ext=""; [[ "$triple" == *windows* ]] && ext=".exe"
+          for n in ffmpeg ffprobe; do [ -e "binaries/$n-$triple$ext" ] || : > "binaries/$n-$triple$ext"; done
+          cargo test --locked
 
   e2e:
     # Interfaz real + motor real en Chromium (la capa de Tauri se sustituye por mocks; ver apps/audio-enhancer/e2e).

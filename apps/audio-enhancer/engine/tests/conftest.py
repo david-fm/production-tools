@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import queue
 import subprocess
+import tempfile
 import sys
 import threading
 from typing import Any
@@ -12,11 +13,12 @@ from typing import Any
 
 class EngineClient:
     def __init__(self, argv: list[str] | None = None, env: dict[str, str] | None = None) -> None:
+        self._err = tempfile.TemporaryFile()  # stderr del motor, visible si hay timeout
         self.proc = subprocess.Popen(
             argv or [sys.executable, "-m", "audio_enhancer_engine"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=self._err,
             env=env,
         )
         self._lines: queue.Queue[bytes] = queue.Queue()
@@ -37,7 +39,11 @@ class EngineClient:
         self.send_raw(json.dumps(payload).encode() + b"\n")
 
     def recv(self, timeout: float = 10) -> dict[str, Any]:
-        line = self._lines.get(timeout=timeout)
+        try:
+            line = self._lines.get(timeout=timeout)
+        except queue.Empty:
+            self._err.seek(0)
+            raise AssertionError(f"timeout esperando al motor; stderr:\n{self._err.read().decode(errors='replace')[-3000:]}") from None
         assert line, "el motor cerró stdout"
         return json.loads(line)
 

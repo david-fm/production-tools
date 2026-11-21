@@ -363,9 +363,10 @@ def main() -> None:
     # El código nativo (p. ej. ONNX Runtime al fallar DirectML) escribe en el fd 1 sin pasar por
     # Python y rompería el protocolo. Se reserva una copia del fd 1 solo para los mensajes JSON
     # y el fd 1 real se desvía a stderr.
-    # Precalienta las importaciones pesadas (numpy, scipy, soundfile) en segundo plano: en frío
-    # tardan varios segundos (sobre todo en Windows) y así el primer comando no las paga.
-    threading.Thread(target=lambda: __import__("audio_enhancer_engine.pipeline"), daemon=True).start()
+    # Importa lo pesado (numpy, scipy, soundfile) en el hilo principal antes de atender peticiones:
+    # importarlo por primera vez desde un hilo de trabajo se quedaba colgado en Windows (CI).
+    import audio_enhancer_engine.pipeline  # noqa: F401
+
     protocol_fd = os.dup(1)
     os.dup2(2, 1)
     sys.stdout = sys.stderr

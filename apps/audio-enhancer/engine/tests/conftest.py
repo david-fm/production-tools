@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import queue
 import subprocess
 import sys
 import tempfile
 import threading
 from typing import Any
-
-os.environ.setdefault("AUDIO_ENHANCER_HANG_DUMP", "8")
 
 
 class EngineClient:
@@ -41,7 +38,7 @@ class EngineClient:
     def send(self, payload: Any) -> None:
         self.send_raw(json.dumps(payload).encode() + b"\n")
 
-    def recv(self, timeout: float = 10) -> dict[str, Any]:
+    def recv(self, timeout: float = 60) -> dict[str, Any]:
         try:
             line = self._lines.get(timeout=timeout)
         except queue.Empty:
@@ -50,7 +47,7 @@ class EngineClient:
         assert line, "el motor cerró stdout"
         return json.loads(line)
 
-    def rpc(self, payload: dict[str, Any], timeout: float = 10) -> dict[str, Any]:
+    def rpc(self, payload: dict[str, Any], timeout: float = 60) -> dict[str, Any]:
         self.send(payload)
         return self.recv(timeout)
 

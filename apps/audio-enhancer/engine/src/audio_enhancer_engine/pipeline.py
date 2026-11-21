@@ -211,7 +211,8 @@ def compute_block(source: Source, k: int, settings: Settings, denoiser: Denoiser
     path = blocks_dir / f"{k:06d}.npy"
     if path.exists():
         try:
-            np.load(path, mmap_mode="r")
+            with path.open("rb") as f:  # sin mmap: en Windows un mapeo abierto impide reemplazar el archivo
+                np.load(f)
             return path
         except (ValueError, OSError, EOFError):
             path.unlink(missing_ok=True)  # corrupto: se recalcula
@@ -231,7 +232,14 @@ def compute_block(source: Source, k: int, settings: Settings, denoiser: Denoiser
     blocks_dir.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{k:06d}.{uuid.uuid4().hex}.tmp.npy")  # único: dos procesos no se pisan
     np.save(tmp, result)
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except PermissionError:
+        # Windows: otro trabajo con los mismos ajustes está leyendo o acaba de escribir este bloque
+        # (el contenido es idéntico: el directorio depende del hash de los ajustes).
+        tmp.unlink(missing_ok=True)
+        if not path.exists():
+            raise
     return path
 
 

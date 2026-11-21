@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -141,7 +143,7 @@ def test_corrupt_file_gives_readable_error(tmp_path):
 
 
 def test_unicode_spaces_and_long_paths(tmp_path):
-    folder = tmp_path / "ñandú café" / ("subcarpeta con espacios " * 6)
+    folder = tmp_path / "ñandú café" / ("subcarpeta con espacios " * (2 if sys.platform == "win32" else 6))  # MAX_PATH de Windows: 260
     folder.mkdir(parents=True)
     src = write_wav(folder / "grabación única.wav", noise(5, 1))
     out = folder / "salida mejorada.wav"

@@ -113,3 +113,24 @@ def test_shutdown_command_exits():
     client = EngineClient()
     assert client.rpc({"id": 40, "cmd": "shutdown"})["ok"] is True
     assert client.proc.wait(timeout=5) == 0
+
+
+def test_native_stdout_noise_does_not_corrupt_protocol():
+    """Regresión (CI Windows): ONNX Runtime escribe avisos en el fd 1 nativo; no deben llegar al protocolo."""
+    code = (
+        "import os, threading\n"
+        "from audio_enhancer_engine import server\n"
+        "orig = server.handle\n"
+        "def noisy(req, out, tasks):\n"
+        "    os.write(1, b'*** EP Error ***\\n')\n"
+        "    return orig(req, out, tasks)\n"
+        "server.handle = noisy\n"
+        "server.main()\n"
+    )
+    import sys
+
+    client = EngineClient([sys.executable, "-c", code])
+    try:
+        assert client.rpc({"id": 1, "cmd": "ping"})["result"] == "pong"
+    finally:
+        client.close()

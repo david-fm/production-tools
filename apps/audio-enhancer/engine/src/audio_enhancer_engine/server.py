@@ -11,6 +11,7 @@ Contrato completo en engine/README.md. Reglas clave:
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -359,7 +360,13 @@ def serve(stdin: IO[str], stdout: IO[str]) -> None:
 
 
 def main() -> None:
+    # El código nativo (p. ej. ONNX Runtime al fallar DirectML) escribe en el fd 1 sin pasar por
+    # Python y rompería el protocolo. Se reserva una copia del fd 1 solo para los mensajes JSON
+    # y el fd 1 real se desvía a stderr.
+    protocol_fd = os.dup(1)
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    protocol = open(protocol_fd, "w", encoding="utf-8", newline="\n", buffering=1)  # noqa: SIM115
     # UTF-8 también en Windows; bytes inválidos en stdin no tumban el motor (se reemplazan).
-    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     sys.stdin.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-    serve(sys.stdin, sys.stdout)
+    serve(sys.stdin, protocol)

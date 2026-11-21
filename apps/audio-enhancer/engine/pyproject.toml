@@ -1,0 +1,33 @@
+[project]
+name = "audio-enhancer-engine"
+version = "0.1.0"
+description = "Motor de audio de Audio Enhancer (sidecar de Tauri, protocolo JSON por stdio)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "soundfile>=0.12",
+    # El proveedor de ejecución depende de la plataforma:
+    # DirectML en Windows (funciona con GPUs NVIDIA sin distribuir CUDA), CPU/CoreML en macOS.
+    "onnxruntime-directml==1.22.0; sys_platform == 'win32'",
+    "onnxruntime==1.22.0; sys_platform != 'win32'",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.8", "pyinstaller>=6.10", "pyloudnorm>=0.1.1"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio_enhancer_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[project.scripts]
+audio-enhancer-cli = "audio_enhancer_engine.cli:main"

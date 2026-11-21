@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/audio-enhancer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/audio-enhancer/engine/uv.lock
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/audio-enhancer/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/audio-enhancer/src-tauri
+
+      - name: ffmpeg para los tests (build del sistema; el instalador usa la build LGPL)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; else brew install ffmpeg; fi
+      - name: Modelo DeepFilterNet3 (caché)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: dfn3-c94d91f7
+      - name: Motor - lint
+        working-directory: apps/audio-enhancer/engine
+        run: uv sync --locked && uv run ruff check .
+      - name: Motor - construir sidecar congelado
+        working-directory: apps/audio-enhancer/engine
+        run: uv run python scripts/build_sidecar.py
+      - name: Motor - tests (incluye binario congelado, modelo real y proveedores de ONNX Runtime)
+        working-directory: apps/audio-enhancer/engine
+        env:
+          AUDIO_ENHANCER_MODELS_DIR: ${{ runner.temp }}/models
+        run: uv run pytest -s
+      - name: Interfaz - typecheck y tests
+        run: pnpm install --frozen-lockfile && pnpm lint && pnpm test
+      - name: Shell Rust - build del front (frontendDist) + cargo test
+        run: pnpm build
+      - name: Shell Rust - cargo test
+        working-directory: apps/audio-enhancer/src-tauri
+        run: cargo test --locked
+
+  e2e:
+    # Interfaz real + motor real en Chromium (la capa de Tauri se sustituye por mocks; ver apps/audio-enhancer/e2e).
+    runs-on: macos-14
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/audio-enhancer
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install ffmpeg
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/audio-enhancer/engine/uv.lock
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: apps/audio-enhancer/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: cd engine && uv sync --locked
+      - run: npx playwright install chromium
+      - run: node e2e/run.mjs "$RUNNER_TEMP/e2e"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-capturas
+          path: ${{ runner.temp }}/e2e/*.png

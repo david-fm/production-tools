@@ -1,0 +1,20 @@
+[package]
+name = "audio-enhancer"
+version = "0.1.0"
+edition = "2021"
+description = "Audio Enhancer: mejora la calidad del audio de grabaciones audiovisuales."
+license = "MIT"
+
+[lib]
+name = "audio_enhancer_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time"] }

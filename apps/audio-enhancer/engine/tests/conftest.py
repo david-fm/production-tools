@@ -5,15 +5,15 @@ from __future__ import annotations
 import json
 import queue
 import subprocess
-import tempfile
 import sys
+import tempfile
 import threading
 from typing import Any
 
 
 class EngineClient:
     def __init__(self, argv: list[str] | None = None, env: dict[str, str] | None = None) -> None:
-        self._err = tempfile.TemporaryFile()  # stderr del motor, visible si hay timeout
+        self._err = tempfile.TemporaryFile()  # noqa: SIM115 - stderr del motor, visible si hay timeout
         self.proc = subprocess.Popen(
             argv or [sys.executable, "-m", "audio_enhancer_engine"],
             stdin=subprocess.PIPE,

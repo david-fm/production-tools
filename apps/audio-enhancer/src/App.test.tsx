@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,7 +82,9 @@ describe("App", () => {
     await screen.findByLabelText(es.loudnessComp);
     const enhance = calls.find((c) => c.cmd === "enhance");
     expect(enhance?.params.region).toEqual([0, 10]);
-    expect(enhance?.params.settings).toMatchObject({ denoise: true, target_lufs: -16 });
+    const sent = enhance?.params.settings as { chain: { kind: string; model: string | null }[]; target_lufs: number; version: number };
+    expect(sent.chain.map((c) => [c.kind, c.model])).toEqual([["highpass", null], ["model", "deepfilternet3"]]);
+    expect(sent).toMatchObject({ target_lufs: -16, version: 2 });
     expect(calls.find((c) => c.cmd === "extract")?.params.region).toEqual([0, 10]);
   });
 
@@ -176,5 +178,85 @@ describe("App", () => {
     await userEvent.click(screen.getAllByRole("button", { name: es.processAll })[0]);
     await new Promise((r) => setTimeout(r, 50));
     expect(calls.some((c) => c.cmd === "enhance" && !c.params.region)).toBe(false);
+  });
+
+  describe("pestañas, cadena y prueba desactualizada", () => {
+    const preview = async () => {
+      await openFile();
+      await userEvent.click(screen.getByRole("button", { name: es.previewButton }));
+      await screen.findByLabelText(es.loudnessComp);
+    };
+
+    it("tiene pestañas Audio, Cadena y Modelos accesibles y navegables con flechas", async () => {
+      await openFile();
+      const tabs = screen.getAllByRole("tab");
+      expect(tabs.map((t) => t.textContent)).toEqual([es.tabAudio, es.tabChain, es.tabModels]);
+      expect(screen.getByRole("tab", { name: es.tabAudio })).toHaveAttribute("aria-selected", "true");
+      screen.getByRole("tab", { name: es.tabAudio }).focus();
+      await userEvent.keyboard("{ArrowRight}");
+      expect(screen.getByRole("tab", { name: es.tabChain })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("tabpanel", { name: es.tabChain })).toBeVisible();
+    });
+
+    it("el estado de la prueba se conserva al cambiar de pestaña", async () => {
+      await preview();
+      await userEvent.click(screen.getByRole("tab", { name: es.tabChain }));
+      await userEvent.click(screen.getByRole("tab", { name: es.tabAudio }));
+      expect(screen.getByLabelText(es.loudnessComp)).toBeInTheDocument();
+      expect(screen.queryByText(es.stalePreview)).toBeNull();
+    });
+
+    it("cambiar la cadena después de probar marca la prueba como desactualizada y «Probar de nuevo» la rehace", async () => {
+      await preview();
+      expect(screen.queryByText(es.stalePreview)).toBeNull();
+      await userEvent.click(screen.getByRole("tab", { name: es.tabChain }));
+      await userEvent.click(screen.getByRole("button", { name: /Recorte de graves/ }));
+      await userEvent.click(screen.getByRole("button", { name: es.disableBox }));
+      await userEvent.click(screen.getByRole("tab", { name: es.tabAudio }));
+      expect(screen.getByText(es.stalePreview)).toBeInTheDocument();
+      const before = calls.filter((c) => c.cmd === "enhance" && c.params.region).length;
+      await userEvent.click(screen.getByRole("button", { name: es.previewAgain }));
+      await waitFor(() => expect(calls.filter((c) => c.cmd === "enhance" && c.params.region).length).toBe(before + 1));
+      await waitFor(() => expect(screen.queryByText(es.stalePreview)).toBeNull());
+      const last = calls.filter((c) => c.cmd === "enhance" && c.params.region).at(-1)!.params.settings as { chain: { kind: string; enabled: boolean }[] };
+      expect(last.chain.find((c) => c.kind === "highpass")?.enabled).toBe(false);
+    });
+
+    it("mover el fragmento después de probar también la desactualiza", async () => {
+      await preview();
+      const end = screen.getByDisplayValue("10");
+      await userEvent.clear(end);
+      await userEvent.type(end, "20");
+      expect(await screen.findByText(es.stalePreview)).toBeInTheDocument();
+    });
+
+    it("un parámetro de una caja cambia lo que se envía al motor", async () => {
+      await openFile();
+      await userEvent.click(screen.getByRole("tab", { name: es.tabChain }));
+      await userEvent.click(screen.getByRole("button", { name: /DeepFilterNet3|deepfilternet3/i }));
+      const slider = screen.getByLabelText(/Intensidad/);
+      fireEvent.change(slider, { target: { value: "40" } });
+      await userEvent.click(screen.getByRole("tab", { name: es.tabAudio }));
+      await userEvent.click(screen.getByRole("button", { name: es.previewButton }));
+      await screen.findByLabelText(es.loudnessComp);
+      const sent = calls.find((c) => c.cmd === "enhance" && c.params.region)!.params.settings as { chain: { model: string | null; params: { strength?: number } }[] };
+      expect(sent.chain.find((c) => c.model === "deepfilternet3")?.params.strength).toBeCloseTo(0.4);
+    });
+
+    it("un preajuste reemplaza la cadena completa", async () => {
+      await openFile();
+      await userEvent.click(screen.getByRole("tab", { name: es.tabChain }));
+      await userEvent.selectOptions(screen.getByLabelText(es.preset), "builtin:hum50");
+      const list = screen.getAllByRole("list")[0];
+      expect(within(list).getAllByRole("button").map((b) => b.querySelector(".box-name")?.textContent)).toEqual([es.boxInput, "Zumbido eléctrico", es.boxVolume, es.boxOutput]);
+    });
+
+    it("la cadena activa se ve en solo lectura en la pestaña Audio", async () => {
+      await openFile();
+      const strip = screen.getByRole("group", { name: es.chainSummary });
+      expect(within(strip).getByText(/Recorte de graves/)).toBeInTheDocument();
+      await userEvent.click(within(strip).getByRole("button", { name: es.editChain }));
+      expect(screen.getByRole("tab", { name: es.tabChain })).toHaveAttribute("aria-selected", "true");
+    });
   });
 });

@@ -28,6 +28,7 @@ misma clave no pueden ejecutarse a la vez. El hilo lector nunca ejecuta trabajo 
 | `extract` | `input`, `output`, `region`, ... | escribe la región original (WAV) y su `lufs` |
 | `enhance` | `input`, `output`, `settings`, `region?`, `audio_index?`, `remux?` | trabajo completo, o vista previa si hay `region` ([inicio_s, fin_s]). Con `remux` la salida es un video `.mov/.mkv/.mp4` con el audio mejorado y el video sin recomprimir |
 | `models_status` | - | compatibilidad v0.1.0: `{deepfilternet3: {installed, path}}` |
+| `stage_catalog` | - | cajas disponibles: `filters` (con su esquema) y `models` (catálogo con su esquema) |
 | `models_catalog` | - | catálogo + modelos de HF instalados: id, tarea, licencia, `verified_license`, tamaño, `status` (`installed`/`missing`/`outdated`), `in_use` |
 | `install_model` | `model` (id; por defecto `deepfilternet3`), `job?` | instalación atómica con sha256, progreso y cancelación; las peticiones del mismo id se serializan |
 | `install_hf` | `repo` (`usuario/nombre`), `file?`, `job?` | descarga un `.onnx` de Hugging Face fijando la revisión (commit); solo HTTPS a hosts de HF; no verificado |
@@ -42,9 +43,19 @@ misma clave no pueden ejecutarse a la vez. El hilo lector nunca ejecuta trabajo 
 - **Ningún modelo viaja en el instalador**: se descargan del origen al equipo del usuario (`models_dir`), con tope de
   bytes en streaming, comprobación de espacio libre y sha256 (catálogo). El marcador `.ok` guarda la huella; el de
   v0.1.0 (sha256 del paquete) sigue siendo válido.
-- **Etapas en orden fijo**: `separate_model` (opcional, p. ej. `kim-vocal-2`) → reducción de ruido (opcional). Cada etapa
-  mezcla con su entrada según su intensidad. El `processing_hash` incluye la huella de cada modelo y la versión del
-  pipeline (2): cambiar pesos o versión invalida la caché de bloques; una etapa desactivada no entra en el hash.
+- **Cadena de etapas en orden libre** (v0.3.0): `settings.chain` es una lista ordenada de etapas
+  `{id, kind: "highpass"|"notch"|"model", model?, enabled, params}`; la salida de una es la entrada de la siguiente.
+  Se pueden repetir cajas. El volumen (LUFS + limitador) y la salida no son etapas: siempre van al final.
+  Los ajustes planos de v0.1.0/v0.2.0 (`highpass_hz`, `denoise`, `separate_model`…) siguen aceptándose y equivalen a
+  la cadena graves → zumbido → separar → reducir ruido (`Settings.effective_chain`).
+- **Parámetros por caja** (`schema.py`): cada tipo de caja declara su esquema `{id, type, label, help, default, min/max/step | options}`;
+  `models_catalog` y `stage_catalog` lo devuelven y la interfaz genera los controles. Solo se declara lo que el motor
+  soporta: `strength` (todas las de modelo, mezcla con la entrada de la caja), `keep` (`primary` = la voz, `residual` =
+  el resto; solo MDX), y los de los filtros. Un parámetro desconocido o fuera de rango se rechaza.
+- **Caché**: `processing_hash` incluye el orden de las etapas activas, sus parámetros y la huella (sha256) de cada
+  modelo, más la versión del pipeline (3). Cambiar pesos, orden o parámetros invalida los bloques; una etapa
+  desactivada (o de modelo con intensidad 0) no entra en el hash. El `id` de la instancia no cuenta.
+- **Contexto**: la suma de `context_s` de las etapas de modelo no puede superar `CONTEXT_S` (3 s); si no, error legible.
 - **Modelos de Hugging Face** (no verificados): solo `.onnx`; se rechazan los que traen `external_data` o dominios de
   operadores personalizados (en la instalación y otra vez al cargarlos). Se ejecutan los de tipo MDX-Net (entrada
   `[N,4,F,T]`); el resto queda "descargado, no compatible". El aviso de licencia/origen es visible pero no bloquea.

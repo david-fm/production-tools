@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ParamSpec } from "../catalog";
 import { engineCall, LONG_TIMEOUT_S, onEngineProgress } from "../engine";
 import { es } from "../i18n/es";
 
@@ -15,10 +16,12 @@ export interface ModelInfo {
   status: "installed" | "missing" | "outdated";
   source: "catalog" | "huggingface";
   in_use: boolean;
+  /** Esquema de parámetros de la caja de este modelo (lo declara el motor). */
+  params?: ParamSpec[];
 }
 
 interface Props {
-  onClose: () => void;
+  onClose?: () => void;
   onChanged: () => void;
 }
 
@@ -84,7 +87,7 @@ export function ModelsPanel({ onClose, onChanged }: Props) {
     <section className="models" aria-label={es.modelsTitle}>
       <div className="row">
         <h2>{es.modelsTitle}</h2>
-        <button type="button" onClick={onClose}>{es.modelsBack}</button>
+        {onClose && <button type="button" onClick={onClose}>{es.modelsBack}</button>}
       </div>
       <p className="help">{es.modelsIntro}</p>
       {error && <div className="banner error" role="alert">{error}</div>}

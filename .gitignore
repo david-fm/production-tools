@@ -1,3 +1,8 @@
 .DS_Store
 *.log
 .env
+
+# Skills de terceros instaladas en el proyecto (npx skills add): no se publican
+.agents/
+.claude/skills/
+skills-lock.json

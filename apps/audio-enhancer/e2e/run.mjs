@@ -74,22 +74,64 @@ try {
   check(Math.abs(t2 - t1) < 0.5, `la posición se conserva al alternar (${t1.toFixed(2)} → ${t2.toFixed(2)})`);
   await page.getByRole("button", { name: /^Pausa$/ }).click();
 
-  await page.getByLabel("Preajuste", { exact: true }).selectOption("builtin:exterior");
-  check((await page.getByLabel("Recortar graves").inputValue()) === "120", "el preajuste cambia los ajustes visibles");
-  await page.screenshot({ path: join(out, "04-ajustes.png"), fullPage: true });
+  // Mover la posición de reproducción dentro del fragmento (seek): depende de peticiones con rango en el servidor
+  const seek = page.getByRole("slider", { name: "Posición dentro del fragmento" });
+  await seek.fill("6");
+  await page.waitForTimeout(300);
+  const seeked = await page.$$eval("audio", (els) => els.map((a) => a.currentTime));
+  check(seeked.every((t) => Math.abs(t - 6) < 0.3), `la barra de posición mueve los dos audios (${seeked.map((t) => t.toFixed(2)).join(", ")})`);
+  check(await page.getByText("0:06 / 0:10").isVisible(), "se muestra el tiempo dentro del fragmento");
+  await page.screenshot({ path: join(out, "04-reproductor.png"), fullPage: true });
+
+  // Pestaña Cadena: seleccionar una caja, cambiar parámetros y reordenar
+  await page.getByRole("tab", { name: "Cadena" }).click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: join(out, "05-cadena.png"), fullPage: true });
+  const names = async () => page.$$eval(".chain .box-name", (els) => els.map((e) => e.textContent));
+  check(JSON.stringify(await names()) === JSON.stringify(["Entrada", "Recorte de graves", "DeepFilterNet3", "Volumen", "Salida"]), "la cadena por defecto: Entrada → graves → DeepFilterNet3 → Volumen → Salida");
+  await page.locator('[data-box]', { hasText: "DeepFilterNet3" }).click();
+  await page.getByRole("button", { name: "Mover antes" }).click();
+  check(JSON.stringify(await names()) === JSON.stringify(["Entrada", "DeepFilterNet3", "Recorte de graves", "Volumen", "Salida"]), "«Mover antes» reordena las cajas");
+  await page.getByLabel(/^Intensidad/).fill("60");
+  check(await page.getByText(/Intensidad: 60 %/).isVisible(), "la configuración por caja cambia solo esa caja");
+  await page.screenshot({ path: join(out, "06-cadena-reordenada.png"), fullPage: true });
+
+  // Volver a Audio: la prueba ya no corresponde a la cadena actual
+  await page.getByRole("tab", { name: "Audio" }).click();
+  check(await page.getByText("Prueba desactualizada").isVisible(), "tras cambiar la cadena la prueba se marca desactualizada");
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: join(out, "07-desactualizada.png"), fullPage: true });
+  await page.getByRole("button", { name: "Probar de nuevo" }).click();
+  await page.getByText("Prueba desactualizada").waitFor({ state: "detached", timeout: 180_000 });
+  check(true, "«Probar de nuevo» rehace la prueba con la cadena actual");
+
+  await page.getByRole("tab", { name: "Cadena" }).click();
+  await page.locator(".presets select").selectOption("builtin:exterior");
+  check(JSON.stringify(await names()) === JSON.stringify(["Entrada", "Recorte de graves", "DeepFilterNet3", "Volumen", "Salida"]), "el preajuste reemplaza la cadena");
+  await page.locator('[data-box]', { hasText: "Recorte de graves" }).click();
+  check(await page.getByText(/Frecuencia de corte: 120 Hz/).isVisible(), "el preajuste cambia los parámetros de la caja");
+  await page.getByRole("tab", { name: "Audio" }).click();
 
   await page.getByRole("button", { name: "Procesar todo el audio…" }).first().click();
   await page.getByText("Listo. Archivo guardado:").waitFor({ timeout: 300_000 });
   const saved = join(work, "salidas", "entrevista de prueba ñandú_mejorado.wav");
   check(existsSync(saved) && statSync(saved).size > 1_000_000, "el archivo final se escribió");
   check(await page.getByText(/Volumen:/).isVisible(), "se muestra el volumen antes → después");
-  await page.screenshot({ path: join(out, "05-terminado.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "08-terminado.png"), fullPage: true });
 
   await page.setViewportSize({ width: 700, height: 900 });
-  await page.screenshot({ path: join(out, "06-estrecho.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "09-estrecho.png"), fullPage: true });
+  await page.getByRole("tab", { name: "Cadena" }).click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: join(out, "09b-estrecho-cadena.png"), fullPage: true });
+  await page.getByRole("tab", { name: "Audio" }).click();
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.screenshot({ path: join(out, "07-oscuro.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "10-oscuro.png"), fullPage: true });
+  await page.getByRole("tab", { name: "Cadena" }).click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: join(out, "10b-oscuro-cadena.png"), fullPage: true });
+  await page.getByRole("tab", { name: "Audio" }).click();
   await page.emulateMedia({ colorScheme: "light" });
 
   // Error legible: archivo que no existe
@@ -98,7 +140,7 @@ try {
   await page.getByRole("alert").first().waitFor({ timeout: 30_000 });
   const alertText = await page.getByRole("alert").first().innerText();
   check(/No se pudo leer/.test(alertText), `error legible al abrir un archivo inexistente: «${alertText.split("\n")[0].slice(0, 60)}…»`);
-  await page.screenshot({ path: join(out, "08-error.png") });
+  await page.screenshot({ path: join(out, "11-error.png") });
   check(pageErrors.length === 0, `sin errores en la consola del navegador ${pageErrors.length ? JSON.stringify(pageErrors) : ""}`);
 
   // --- Escenario 2: primer uso sin el modelo instalado (descarga real, verificada por sha256) ---
@@ -113,19 +155,19 @@ try {
     await page2.goto("http://localhost:1421");
     await page2.getByText(/modelo de reducción de ruido/).waitFor({ timeout: 60_000 });
     check(true, "sin modelo instalado se avisa claramente");
-    await page2.screenshot({ path: join(out, "09-modelo-ausente.png") });
+    await page2.screenshot({ path: join(out, "12-modelo-ausente.png") });
     await page2.getByRole("button", { name: "Descargar modelo ahora" }).click();
     await page2.getByText(/modelo de reducción de ruido/).waitFor({ state: "detached", timeout: 120_000 });
     check(existsSync(join(work, "modelos-vacios", "deepfilternet3", "enc.onnx")), "el modelo se descargó, verificó e instaló");
     // Pantalla de modelos: catálogo real desde el motor
-    await page2.getByRole("button", { name: "Modelos", exact: true }).click();
-    await page2.getByText("Kim Vocal 2 (aislar voz)").waitFor({ timeout: 30_000 });
+    await page2.getByRole("tab", { name: "Modelos" }).click();
+    await page2.getByRole("tabpanel", { name: "Modelos" }).getByText("Kim Vocal 2 (aislar voz)").waitFor({ timeout: 30_000 });
     check(await page2.getByText("Licencia sin verificar").count() >= 1, "el catálogo muestra la licencia sin verificar de Kim Vocal 2");
     check(await page2.getByRole("button", { name: "Quitar" }).count() === 1, "DeepFilterNet3 aparece instalado y Kim Vocal 2 no");
     await page2.getByRole("button", { name: "Instalar" }).click();
     await page2.getByRole("alertdialog").waitFor();
     check(!existsSync(join(work, "modelos-vacios", "kim-vocal-2")), "sin confirmar, el modelo no se descarga");
-    await page2.screenshot({ path: join(out, "10-modelos.png"), fullPage: true });
+    await page2.screenshot({ path: join(out, "13-modelos.png"), fullPage: true });
   } finally {
     bridge2.close();
   }

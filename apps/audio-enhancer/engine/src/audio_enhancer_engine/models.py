@@ -440,6 +440,12 @@ def install_hf(
 # ---------- listado, uso y borrado ----------
 
 
+def _params_for(model_id: str) -> list[dict[str, Any]]:
+    from .schema import params_schema
+
+    return params_schema("model", model_id)
+
+
 def list_models(models_dir: Path | None = None) -> list[dict[str, Any]]:
     base = models_dir or default_models_dir()
     out: list[dict[str, Any]] = []
@@ -448,7 +454,7 @@ def list_models(models_dir: Path | None = None) -> list[dict[str, Any]]:
             "id": e.id, "name": e.name, "task": e.task, "description": e.description, "license": e.license,
             "license_url": e.license_url, "verified_license": e.verified_license, "default": e.default,
             "size_bytes": e.size_bytes, "status": entry_status(e, base), "source": "catalog",
-            "in_use": bool(_usage.get(e.id)),
+            "in_use": bool(_usage.get(e.id)), "params": _params_for(e.id),
         })  # fmt: skip
     if base.is_dir():
         for folder in sorted(base.glob("hf--*")):
@@ -459,7 +465,7 @@ def list_models(models_dir: Path | None = None) -> list[dict[str, Any]]:
                     "description": "Modelo de Hugging Face sin verificar.", "license": info.get("license", "desconocida"),
                     "license_url": f"https://huggingface.co/{info['repo']}", "verified_license": False, "default": False,
                     "size_bytes": info.get("size_bytes", 0), "status": "installed", "source": "huggingface",
-                    "in_use": bool(_usage.get(folder.name)),
+                    "in_use": bool(_usage.get(folder.name)), "params": _params_for(folder.name),
                 })  # fmt: skip
     return out
 

@@ -15,11 +15,11 @@ _lock = threading.Lock()
 
 
 def needed_models(settings) -> list[str]:
+    """Ids de los modelos de las etapas activas, sin repetir y en orden."""
     ids: list[str] = []
-    if settings.separate_model is not None and settings.separate_strength > 0:
-        ids.append(settings.separate_model)
-    if settings.denoise and settings.denoise_strength > 0:
-        ids.append("deepfilternet3")
+    for st in settings.active_stages():
+        if st.kind == "model" and st.model not in ids:
+            ids.append(st.model)
     return ids
 
 
@@ -63,16 +63,50 @@ def load_model(model_id: str, models_dir=None):
         return loaded
 
 
+class _KeepStage:
+    """Un modelo MDX con su parámetro `keep` (conservar la voz o el resto) fijado para esta etapa."""
+
+    def __init__(self, model: MdxNet, keep: str) -> None:
+        self._model, self._keep = model, keep
+        self.providers = model.providers
+        self.context_s = model.context_s
+
+    def enhance(self, audio):
+        return self._model.enhance(audio, keep=self._keep)
+
+
 def build_chain(settings, models_dir=None) -> Chain | None:
-    """Cadena para estos ajustes, o None si no hay etapas de IA. Los modelos deben estar reservados (use_models)."""
-    ids = needed_models(settings)
-    if not ids:
+    """Ejecutor de la cadena activa (filtros y modelos, en orden), o None si no hay etapas activas.
+
+    Los modelos deben estar reservados con `models.use_models`. Falla de forma legible si el contexto que
+    necesitan las etapas juntas no cabe en el que el pipeline da a cada bloque.
+    """
+    from .dsp import SosFilter, highpass_sos, notch_sos
+    from .pipeline import CONTEXT_S
+
+    active = settings.active_stages()
+    if not active:
         return None
-    stages, fingerprints, providers = [], {}, []
-    for model_id in ids:
-        model = load_model(model_id, models_dir)
-        strength = settings.separate_strength if model_id == settings.separate_model else settings.denoise_strength
-        stages.append((model, strength))
-        fingerprints[model_id] = models.model_fingerprint(model_id, models_dir)
-        providers.extend(p for p in model.providers if p not in providers)
+    stages, fingerprints, providers, context = [], {}, [], 0.0
+    for st in active:
+        p = st.resolved()
+        if st.kind == "highpass":
+            stages.append((SosFilter(highpass_sos(p["hz"])), 1.0))
+            continue
+        if st.kind == "notch":
+            sos = notch_sos(p["hz"], p["harmonics"])
+            if sos is not None:
+                stages.append((SosFilter(sos), 1.0))
+            continue
+        model = load_model(st.model, models_dir)
+        if "keep" in p and isinstance(model, MdxNet):
+            model = _KeepStage(model, p["keep"])
+        stages.append((model, p["strength"]))
+        fingerprints[st.model] = models.model_fingerprint(st.model, models_dir)
+        providers.extend(x for x in model.providers if x not in providers)
+        context += getattr(model, "context_s", 0.0)
+    if context > CONTEXT_S:
+        raise ModelError(
+            f"La cadena necesita {context:.1f} s de contexto por bloque y el máximo es {CONTEXT_S:.1f} s: usa menos modelos."
+        )
     return Chain(stages, fingerprints, providers)

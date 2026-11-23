@@ -217,19 +217,27 @@ def compute_block(source: Source, k: int, settings: Settings, denoiser: Denoiser
         except (ValueError, OSError, EOFError):
             path.unlink(missing_ok=True)  # corrupto: se recalcula
 
-    wants_model = (settings.denoise and settings.denoise_strength > 0) or settings.separate_model is not None
-    if wants_model and denoiser is None:
+    if settings.chain is not None:
+        wants_stages = bool(settings.active_stages())
+    else:
+        wants_stages = (settings.denoise and settings.denoise_strength > 0) or settings.separate_model is not None
+    if wants_stages and denoiser is None:
         raise ValueError("Los ajustes piden un modelo de audio pero no se proporcionó ninguno.")
     s0, s1, w0, w1 = _block_bounds(source, k)
     window = source.read(w0, w1)
-    dry = apply_filter(build_filter(settings), window)
-    out = dry
     if isinstance(denoiser, Chain):
-        out = np.stack([denoiser.enhance(dry[:, c]) for c in range(dry.shape[1])], axis=1).astype(np.float32)
-    elif settings.denoise and denoiser is not None and settings.denoise_strength > 0:
-        wet = np.stack([denoiser.enhance(dry[:, c]) for c in range(dry.shape[1])], axis=1)
-        s = settings.denoise_strength
-        out = (s * wet + (1.0 - s) * dry).astype(np.float32)
+        # La cadena ya incluye los filtros y los modelos, en el orden pedido.
+        out = np.stack([denoiser.enhance(window[:, c]) for c in range(window.shape[1])], axis=1).astype(np.float32)
+    elif settings.chain is not None:
+        out = window  # cadena explícita sin etapas activas: el audio pasa tal cual
+    else:
+        # Formato plano antiguo con un modelo suelto (tests y CLI): filtros y luego un solo denoiser.
+        dry = apply_filter(build_filter(settings), window)
+        out = dry
+        if settings.denoise and denoiser is not None and settings.denoise_strength > 0:
+            wet = np.stack([denoiser.enhance(dry[:, c]) for c in range(dry.shape[1])], axis=1)
+            s = settings.denoise_strength
+            out = (s * wet + (1.0 - s) * dry).astype(np.float32)
     result = np.ascontiguousarray(out[s0 - w0 : s1 - w0], dtype=np.float32)
 
     blocks_dir.mkdir(parents=True, exist_ok=True)

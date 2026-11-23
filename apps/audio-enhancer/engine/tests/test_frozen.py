@@ -117,3 +117,35 @@ def test_frozen_binary_runs_the_separation_stage_and_lists_models(tmp_path):
         assert sf.info(tmp_path / "out.wav").frames == 6 * SR
     finally:
         client.close()
+
+
+@pytest.mark.skipif(_frozen_binary() is None, reason="sidecar congelado no construido")
+def test_frozen_binary_runs_an_explicit_chain_with_params(tmp_path):
+    """Cadena v0.3.0 en el binario congelado: filtro -> modelo MDX con `keep` -> reducción de ruido, y el esquema."""
+    from audio_enhancer_engine import models
+
+    try:
+        models.install("kim-vocal-2")
+        models.install("deepfilternet3")
+    except (OSError, models.ModelError) as exc:
+        pytest.skip(f"modelo no disponible: {exc}")
+    src = write_wav(tmp_path / "in.wav", speechlike(6, 1))
+    chain = [
+        {"id": "a", "kind": "highpass", "params": {"hz": 100}},
+        {"id": "b", "kind": "model", "model": "kim-vocal-2", "params": {"strength": 0.8, "keep": "primary"}},
+        {"id": "c", "kind": "model", "model": "deepfilternet3", "params": {"strength": 1.0}},
+    ]
+    client = EngineClient([str(_frozen_binary())], env=_ffmpeg_env(tmp_path))
+    try:
+        cat = client.rpc({"id": 1, "cmd": "stage_catalog"}, timeout=120)["result"]
+        assert [f["kind"] for f in cat["filters"]] == ["highpass", "notch"]
+        client.send({"id": 2, "cmd": "enhance", "input": str(src), "output": str(tmp_path / "out.wav"),
+                     "settings": {"chain": chain, "normalize": False}})  # fmt: skip
+        while True:
+            msg = client.recv(timeout=300)
+            if msg.get("id") == 2 and "ok" in msg:
+                break
+        assert msg["ok"] is True, msg
+        assert sf.info(tmp_path / "out.wav").frames == 6 * SR
+    finally:
+        client.close()

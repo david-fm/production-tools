@@ -1,26 +1,29 @@
-import { DEFAULT_SETTINGS, sanitizeSettings, type Settings } from "./settings";
+import { DENOISE_MODEL, makeStage, sanitizeSettings, type Settings, type Stage } from "./settings";
 
 export interface BuiltinPreset {
   id: string;
-  settings: Settings;
+  /** Genera ajustes nuevos cada vez (las cajas llevan ids únicos). */
+  build: () => Settings;
 }
 
-const make = (over: Partial<Settings>): Settings => sanitizeSettings({ ...DEFAULT_SETTINGS, ...over });
+const withChain = (chain: Stage[], over: Partial<Settings> = {}): Settings => sanitizeSettings({ ...over, chain });
+const hp = (hz: number) => makeStage("highpass", null, { hz });
+const dn = (strength: number) => makeStage("model", DENOISE_MODEL, { strength });
 
 export const BUILTIN_PRESETS: BuiltinPreset[] = [
-  { id: "default", settings: make({}) },
-  { id: "exterior", settings: make({ highpass_hz: 120, denoise_strength: 1 }) },
-  { id: "estudio", settings: make({ highpass_hz: 80, denoise_strength: 0.6 }) },
-  { id: "hum50", settings: make({ notch_hz: 50, denoise: false }) },
-  { id: "hum60", settings: make({ notch_hz: 60, denoise: false }) },
-  { id: "tv", settings: make({ target_lufs: -23 }) },
-  { id: "volumen", settings: make({ highpass_hz: null, denoise: false }) },
+  { id: "default", build: () => withChain([hp(80), dn(1)]) },
+  { id: "exterior", build: () => withChain([hp(120), dn(1)]) },
+  { id: "estudio", build: () => withChain([hp(80), dn(0.6)]) },
+  { id: "hum50", build: () => withChain([makeStage("notch", null, { hz: 50 })]) },
+  { id: "hum60", build: () => withChain([makeStage("notch", null, { hz: 60 })]) },
+  { id: "tv", build: () => withChain([hp(80), dn(1)], { target_lufs: -23 }) },
+  { id: "volumen", build: () => withChain([]) },
 ];
 
 // --- Preajustes propios (JSON versionado en localStorage; si no está disponible, solo viven en memoria) ---
 
 const STORAGE_KEY = "audio-enhancer.presets";
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2; // v1 guardaba ajustes planos: se migran a cadena al cargar
 
 export interface CustomPreset {
   name: string;
@@ -37,7 +40,7 @@ export function loadCustomPresets(storage: Pick<Storage, "getItem"> | null = saf
     const raw = storage?.getItem(STORAGE_KEY);
     if (!raw) return [];
     const data = JSON.parse(raw) as StoredPresets;
-    if (data.version !== STORAGE_VERSION || !Array.isArray(data.presets)) return [];
+    if ((data.version !== STORAGE_VERSION && data.version !== 1) || !Array.isArray(data.presets)) return [];
     return data.presets
       .filter((p) => typeof p?.name === "string" && p.name.trim() !== "")
       .map((p) => ({ name: p.name.trim().slice(0, 60), settings: sanitizeSettings(p.settings) }));

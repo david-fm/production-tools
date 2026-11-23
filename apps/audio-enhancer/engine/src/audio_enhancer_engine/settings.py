@@ -5,12 +5,56 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
-SETTINGS_VERSION = 1
-PIPELINE_VERSION = 2  # v2: etapa de separación y huellas de modelo en el hash; súbela al cambiar el algoritmo o el modelo: invalida los bloques en caché
+SETTINGS_VERSION = 2
+PIPELINE_VERSION = 3  # v3: cadena de etapas en orden libre (el orden y los parámetros entran en el hash); súbela al cambiar el algoritmo o el modelo: invalida los bloques en caché
 SAMPLE_RATE = 48_000  # frecuencia interna fija (la que usa DeepFilterNet3)
+
+
+MAX_STAGES = 12
+STAGE_KINDS = ("highpass", "notch", "model")
+_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}")
+
+
+@dataclass(frozen=True)
+class Stage:
+    """Una caja de la cadena. `id` identifica la instancia (se pueden repetir cajas del mismo tipo)."""
+
+    id: str
+    kind: str  # "highpass" | "notch" | "model"
+    model: str | None = None  # solo para kind == "model"
+    enabled: bool = True
+    params: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> None:
+        from .schema import resolve_params
+
+        if not (isinstance(self.id, str) and _ID_RE.fullmatch(self.id)):
+            raise ValueError("el id de una etapa debe ser texto sencillo")
+        if self.kind not in STAGE_KINDS:
+            raise ValueError(f"tipo de etapa desconocido: {self.kind!r}")
+        if not isinstance(self.enabled, bool):
+            raise TypeError("'enabled' debe ser booleano")
+        if self.kind == "model":
+            if not (isinstance(self.model, str) and _ID_RE.fullmatch(self.model)):
+                raise ValueError("una etapa de modelo necesita un id de modelo válido")
+        elif self.model is not None:
+            raise ValueError("solo las etapas de modelo llevan 'model'")
+        resolve_params(self.kind, self.model, self.params)
+
+    def resolved(self) -> dict[str, Any]:
+        from .schema import resolve_params
+
+        return resolve_params(self.kind, self.model, self.params)
+
+    @property
+    def active(self) -> bool:
+        """Una etapa desactivada, o de modelo con intensidad 0, no hace nada."""
+        if not self.enabled:
+            return False
+        return not (self.kind == "model" and self.resolved()["strength"] <= 0)
 
 
 @dataclass(frozen=True)
@@ -35,6 +79,26 @@ class Settings:
     channels: str = "each"  # "each": cada canal por separado; "mix": mezclar a mono
     output_format: str = "wav24"  # "wav24" | "flac24"
     version: int = SETTINGS_VERSION
+    #: Cadena explícita (v0.3.0). Si es None se usan los campos planos de arriba (formato de v0.1.0/v0.2.0),
+    #: que equivalen a la cadena graves -> zumbido -> separar -> reducir ruido (`effective_chain`).
+    chain: tuple[Stage, ...] | None = None
+
+    def effective_chain(self) -> tuple[Stage, ...]:
+        if self.chain is not None:
+            return self.chain
+        stages: list[Stage] = []
+        if self.highpass_hz is not None:
+            stages.append(Stage("highpass", "highpass", params={"hz": float(self.highpass_hz)}))
+        if self.notch_hz is not None:
+            stages.append(Stage("notch", "notch", params={"hz": float(self.notch_hz), "harmonics": self.notch_harmonics}))
+        if self.separate_model is not None:
+            stages.append(Stage("separate", "model", self.separate_model, params={"strength": float(self.separate_strength)}))
+        if self.denoise:
+            stages.append(Stage("denoise", "model", "deepfilternet3", params={"strength": float(self.denoise_strength)}))
+        return tuple(stages)
+
+    def active_stages(self) -> tuple[Stage, ...]:
+        return tuple(st for st in self.effective_chain() if st.active)
 
     def validate(self) -> None:
         def check(cond: bool, msg: str) -> None:
@@ -64,11 +128,20 @@ class Settings:
         check(0.0 <= self.separate_strength <= 1.0, "separate_strength debe estar entre 0 y 1")
         check(-40 <= self.target_lufs <= -5, "target_lufs debe estar entre -40 y -5")
         check(-6 <= self.max_true_peak_db <= 0, "max_true_peak_db debe estar entre -6 y 0")
+        if self.chain is not None:
+            check(isinstance(self.chain, tuple) and all(isinstance(st, Stage) for st in self.chain), "chain debe ser una lista de etapas")
+            check(len(self.chain) <= MAX_STAGES, f"la cadena admite como máximo {MAX_STAGES} etapas")
+            check(len({st.id for st in self.chain}) == len(self.chain), "los ids de las etapas deben ser únicos")
+            for st in self.chain:
+                st.validate()
         check(self.channels in ("each", "mix"), "channels debe ser 'each' o 'mix'")
         check(self.output_format in ("wav24", "flac24"), "output_format debe ser 'wav24' o 'flac24'")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if data.get("chain") is not None:
+            data["chain"] = list(data["chain"])
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:
@@ -78,26 +151,36 @@ class Settings:
             raise ValueError(f"ajustes desconocidos: {sorted(unknown)}")
         if not isinstance(data, dict):
             raise TypeError("los ajustes deben ser un objeto")
-        settings = cls(**data)
+        data = dict(data)
+        raw_chain = data.pop("chain", None)
+        chain = None
+        if raw_chain is not None:
+            if not isinstance(raw_chain, list):
+                raise TypeError("chain debe ser una lista")
+            stages = []
+            for item in raw_chain:
+                if not isinstance(item, dict):
+                    raise TypeError("cada etapa debe ser un objeto")
+                extra = set(item) - {"id", "kind", "model", "enabled", "params"}
+                if extra:
+                    raise ValueError(f"campos desconocidos en la etapa: {sorted(extra)}")
+                stages.append(Stage(**item))
+            chain = tuple(stages)
+        settings = cls(**data, chain=chain)
         settings.validate()
         return settings
 
     def processing_hash(self, model_fingerprints: dict[str, str] | None = None) -> str:
         """Hash de lo que afecta al audio de cada bloque (no al volumen final ni al formato de salida).
 
-        Incluye la huella (sha256) de cada modelo usado: cambiar los pesos bajo el mismo id nunca mezcla caché.
-        Una etapa desactivada tiene forma canónica (sus campos no entran en el hash).
+        Incluye el ORDEN de las etapas activas, sus parámetros y la huella (sha256) de cada modelo usado:
+        cambiar pesos bajo el mismo id nunca mezcla caché. Una etapa desactivada no entra (forma canónica),
+        y los ajustes planos antiguos dan el mismo hash que su cadena equivalente.
         """
-        relevant = {
-            k: v
-            for k, v in self.to_dict().items()
-            if k not in ("normalize", "target_lufs", "max_true_peak_db", "output_format")
+        relevant: dict[str, Any] = {
+            "chain": [{"kind": st.kind, "model": st.model, "params": st.resolved()} for st in self.active_stages()],
+            "channels": self.channels,
+            "models": dict(sorted((model_fingerprints or {}).items())),
+            "pipeline_version": PIPELINE_VERSION,
         }
-        if self.separate_model is None:
-            relevant.pop("separate_model")
-            relevant.pop("separate_strength")
-        if not self.denoise:
-            relevant.pop("denoise_strength")
-        relevant["models"] = dict(sorted((model_fingerprints or {}).items()))
-        relevant["pipeline_version"] = PIPELINE_VERSION
         return hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:16]

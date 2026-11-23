@@ -98,6 +98,8 @@ def erb_widths(sr: int, fft_size: int, nb_bands: int, min_nb_freqs: int) -> np.n
 class DeepFilterNet3:
     """Carga enc/erb_dec/df_dec.onnx desde `model_dir` (ver models.py para descargarlos)."""
 
+    context_s = 1.0  # calentamiento de los normalizadores (tau = 1 s)
+
     def __init__(self, model_dir: str | os.PathLike[str], providers: list[str] | None = None) -> None:
         import onnxruntime as ort
 

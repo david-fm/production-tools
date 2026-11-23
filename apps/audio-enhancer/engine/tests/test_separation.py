@@ -14,7 +14,7 @@ from helpers import have_ffmpeg
 
 from audio_enhancer_engine import models, stages
 from audio_enhancer_engine.pipeline import render
-from audio_enhancer_engine.settings import Settings
+from audio_enhancer_engine.settings import Settings, Stage
 
 CLIP = Path(__file__).parent / "data" / "speech_pd_8s.wav"
 ffmpeg_needed = pytest.mark.skipif(not have_ffmpeg(), reason="ffmpeg no disponible")
@@ -123,3 +123,35 @@ def test_v010_settings_without_stage_fields_still_load():
 def test_invalid_stage_settings_are_rejected(bad):
     with pytest.raises((ValueError, TypeError)):
         Settings.from_dict(bad)
+
+
+@ffmpeg_needed
+def test_keep_residual_keeps_the_background_instead_of_the_voice(kim, clip, tmp_path):
+    music = music_like(len(clip))
+    src = tmp_path / "in.wav"
+    sf.write(src, clip + music, 48_000, subtype="FLOAT")
+    s = Settings(chain=(Stage("s", "model", "kim-vocal-2", params={"keep": "residual"}),), normalize=False)
+    with models.use_models(stages.needed_models(s)):
+        render(src, tmp_path / "out.wav", s, stages.build_chain(s), work_root=tmp_path / "w")
+    out, _ = sf.read(tmp_path / "out.wav", dtype="float32")
+    coef, *_ = np.linalg.lstsq(np.stack([clip, music], 1).astype(np.float64), out.astype(np.float64), rcond=None)
+    assert coef[1] > 0.8 and abs(coef[0]) < 0.3  # queda la música, se va la voz
+
+
+@ffmpeg_needed
+def test_two_models_in_either_order_run_and_differ(kim, clip, tmp_path):
+    try:
+        models.install("deepfilternet3")
+    except (OSError, models.ModelError) as exc:
+        pytest.skip(f"modelo no disponible: {exc}")
+    src = tmp_path / "in.wav"
+    sf.write(src, clip + music_like(len(clip)), 48_000, subtype="FLOAT")
+    outs = []
+    for name, order in (("a", ("kim-vocal-2", "deepfilternet3")), ("b", ("deepfilternet3", "kim-vocal-2"))):
+        s = Settings(chain=tuple(Stage(f"s{i}", "model", m) for i, m in enumerate(order)), normalize=False)
+        with models.use_models(stages.needed_models(s)):
+            render(src, tmp_path / f"{name}.wav", s, stages.build_chain(s), work_root=tmp_path / "w")
+        out, _ = sf.read(tmp_path / f"{name}.wav", dtype="float32")
+        assert len(out) == len(clip) and np.isfinite(out).all()
+        outs.append(out)
+    assert np.abs(outs[0] - outs[1]).max() > 1e-4  # el orden de las cajas cambia el resultado

@@ -262,6 +262,23 @@ def _cmd_models_status(_request: dict[str, Any]) -> Any:
                                "path": str(models.model_folder("deepfilternet3"))}}  # fmt: skip
 
 
+FILTER_INFO = [
+    {"kind": "highpass", "name": "Recorte de graves", "description": "Quita retumbos y viento por debajo de una frecuencia."},
+    {"kind": "notch", "name": "Zumbido eléctrico", "description": "Elimina el zumbido de la red eléctrica y sus armónicos."},
+]
+
+
+def _cmd_stage_catalog(_request: dict[str, Any]) -> Any:
+    """Cajas que se pueden añadir a la cadena: filtros (con su esquema) y modelos del catálogo."""
+    from . import models
+    from .schema import params_schema
+
+    return {
+        "filters": [{**f, "params": params_schema(f["kind"])} for f in FILTER_INFO],
+        "models": [m for m in models.list_models() if m["task"] in ("denoise", "separate", "unknown")],
+    }
+
+
 def _cmd_models_catalog(_request: dict[str, Any]) -> Any:
     from . import models
 
@@ -344,6 +361,8 @@ def handle(request: dict[str, Any], out: IO[str], tasks: Tasks) -> bool:
             tasks.start(req_id, _simple(request, out, _cmd_models_status), out)
         elif cmd == "models_catalog":
             tasks.start(req_id, _simple(request, out, _cmd_models_catalog), out)
+        elif cmd == "stage_catalog":
+            tasks.start(req_id, _simple(request, out, _cmd_stage_catalog), out)
         elif cmd == "install_model":
             tasks.start(req_id, _install_model(request, out), out, key=_job_key(request))
         elif cmd == "install_hf":

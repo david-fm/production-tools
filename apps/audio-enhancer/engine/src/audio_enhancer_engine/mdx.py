@@ -134,13 +134,14 @@ class MdxNet:
             out.append(y.mean(axis=0)[self.trim : self.chunk - self.trim])
         return np.concatenate(out)[:n]
 
-    def enhance(self, audio: np.ndarray) -> np.ndarray:
+    def enhance(self, audio: np.ndarray, keep: str | None = None) -> np.ndarray:
+        keep = keep or self.params.keep
         n = len(audio)
         if n == 0:
             return audio.astype(np.float32, copy=True)
         mono44 = resample_poly(audio.astype(np.float64), MODEL_SR // 300, SAMPLE_RATE // 300).astype(np.float32)
         primary44 = self._separate(mono44)
-        kept44 = primary44 if self.params.keep == "primary" else mono44 - primary44
+        kept44 = primary44 if keep == "primary" else mono44 - primary44
         out = resample_poly(kept44.astype(np.float64), SAMPLE_RATE // 300, MODEL_SR // 300)
         out = out[:n] if len(out) >= n else np.pad(out, (0, n - len(out)))
         return np.nan_to_num(out).astype(np.float32)

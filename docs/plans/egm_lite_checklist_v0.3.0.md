@@ -11,7 +11,7 @@
 6. El reproductor de prueba debe permitir **mover la posición de reproducción** y reproducir **solo lo editado**.
 7. PyTorch queda para **v0.4.0**.
 
-**Estado de ejecución (2026-11-23):** A–D, P1 y P2 hechos y verificados en macOS (162 tests del motor, 74 de la interfaz, 3 de Rust, e2e de 24 comprobaciones, capturas revisadas). P3 (CI y release) en curso. Pendiente: revisión Goldfish del diff.
+**Estado de ejecución (2026-11-23):** A–D, P1 y P2 hechos y verificados en macOS (162 tests del motor, 74 de la interfaz, 3 de Rust, e2e de 24 comprobaciones, capturas revisadas). P3 (CI y release) hecho: CI verde y pre-release v0.3.0 publicado. Pendiente: revisión Goldfish del diff.
 
 **Reglas de diseño que se aplican** (de la skill, solo las que valen para escritorio): arrastrar nunca es la única forma de reordenar (WCAG 2.5.7); controles ≥ 44 px; contraste ≥ 4,5:1; foco visible; `prefers-reduced-motion`; estado con `aria-pressed`/`aria-selected`; nada de emojis como iconos. No se adopta su patrón de *landing page*.
 
@@ -52,7 +52,7 @@
 
 - [x] **P1. Higiene del repo:** añadir `.agents/`, `.claude/skills/` y `skills-lock.json` a [`.gitignore`](../../.gitignore) (contenido de terceros instalado en el proyecto; no se publica). El usuario decide si quiere la skill de forma global.
 - [x] **P2. Documentación:** README de la app y del motor (contrato de la cadena y de los esquemas de parámetros), `docs/verification/`, cambios visibles.
-- [ ] **P3. Versión 0.3.0**, CI verde en Windows y macOS, instaladores, etiqueta y pre-release.
+- [x] **P3. Versión 0.3.0**, CI verde en Windows y macOS, instaladores, etiqueta y pre-release.
 
 ## Pruebas empíricas aplazadas `[⏳ ACK]`
 

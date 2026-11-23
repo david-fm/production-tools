@@ -27,11 +27,29 @@ misma clave no pueden ejecutarse a la vez. El hilo lector nunca ejecuta trabajo 
 | `waveform` | `path`, `points`, `audio_index`, `channels` | picos mín/máx para dibujar (decodifica y cachea el origen) |
 | `extract` | `input`, `output`, `region`, ... | escribe la región original (WAV) y su `lufs` |
 | `enhance` | `input`, `output`, `settings`, `region?`, `audio_index?`, `remux?` | trabajo completo, o vista previa si hay `region` ([inicio_s, fin_s]). Con `remux` la salida es un video `.mov/.mkv/.mp4` con el audio mejorado y el video sin recomprimir |
-| `models_status` / `install_model` | - | estado e instalación (atómica, sha256) de DeepFilterNet3 |
+| `models_status` | - | compatibilidad v0.1.0: `{deepfilternet3: {installed, path}}` |
+| `models_catalog` | - | catálogo + modelos de HF instalados: id, tarea, licencia, `verified_license`, tamaño, `status` (`installed`/`missing`/`outdated`), `in_use` |
+| `install_model` | `model` (id; por defecto `deepfilternet3`), `job?` | instalación atómica con sha256, progreso y cancelación; las peticiones del mismo id se serializan |
+| `install_hf` | `repo` (`usuario/nombre`), `file?`, `job?` | descarga un `.onnx` de Hugging Face fijando la revisión (commit); solo HTTPS a hosts de HF; no verificado |
+| `remove_model` | `model` | borra un modelo; se rechaza si un trabajo lo está usando |
 | `cache_info` / `clear_cache` | - | bytes de archivos temporales / libera todo |
 | `cancel` | `target?` (clave `job` o `id`) | cancela esa tarea, o todas si se omite |
 | `progress_demo` | `steps`, `delay` | tarea de prueba |
 | `shutdown` | - | cierre ordenado |
+
+## Modelos y etapas (models.py, stages.py, mdx.py)
+
+- **Ningún modelo viaja en el instalador**: se descargan del origen al equipo del usuario (`models_dir`), con tope de
+  bytes en streaming, comprobación de espacio libre y sha256 (catálogo). El marcador `.ok` guarda la huella; el de
+  v0.1.0 (sha256 del paquete) sigue siendo válido.
+- **Etapas en orden fijo**: `separate_model` (opcional, p. ej. `kim-vocal-2`) → reducción de ruido (opcional). Cada etapa
+  mezcla con su entrada según su intensidad. El `processing_hash` incluye la huella de cada modelo y la versión del
+  pipeline (2): cambiar pesos o versión invalida la caché de bloques; una etapa desactivada no entra en el hash.
+- **Modelos de Hugging Face** (no verificados): solo `.onnx`; se rechazan los que traen `external_data` o dominios de
+  operadores personalizados (en la instalación y otra vez al cargarlos). Se ejecutan los de tipo MDX-Net (entrada
+  `[N,4,F,T]`); el resto queda "descargado, no compatible". El aviso de licencia/origen es visible pero no bloquea.
+- **Limitación conocida**: el modelo de reverberación de UVR (Reverb_HQ_By_FoxJoy) solo detecta la cola comparando los
+  canales L/R; con audio mono (el pipeline procesa cada canal por separado) su salida es ~0, así que no se incluye.
 
 ## Cómo procesa (pipeline.py)
 

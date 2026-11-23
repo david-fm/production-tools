@@ -134,3 +134,33 @@ def test_native_stdout_noise_does_not_corrupt_protocol():
         assert client.rpc({"id": 1, "cmd": "ping"})["result"] == "pong"
     finally:
         client.close()
+
+
+def test_model_commands_over_the_protocol(tmp_path):
+    import os
+
+    client = EngineClient(env={**os.environ, "AUDIO_ENHANCER_MODELS_DIR": str(tmp_path)})
+    try:
+        catalog = client.rpc({"id": 1, "cmd": "models_catalog"}, timeout=60)["result"]
+        by_id = {m["id"]: m for m in catalog}
+        assert by_id["deepfilternet3"]["default"] and by_id["deepfilternet3"]["status"] == "missing"
+        assert by_id["kim-vocal-2"]["verified_license"] is False
+        # contrato de v0.1.0 que usa la interfaz
+        assert client.rpc({"id": 2, "cmd": "models_status"})["result"]["deepfilternet3"]["installed"] is False
+        for payload, texto in [
+            ({"cmd": "install_model", "model": "no-existe"}, "desconocido"),
+            ({"cmd": "install_hf", "repo": "../x"}, "inválido"),
+            ({"cmd": "install_hf", "repo": 5}, "inválidos"),
+            ({"cmd": "install_model", "model": 5}, "inválidos"),
+            ({"cmd": "remove_model"}, "inválidos"),
+        ]:
+            reply = client.rpc({"id": 3, **payload})
+            assert reply["ok"] is False and texto in reply["error"], (payload, reply)
+        assert client.rpc({"id": 4, "cmd": "remove_model", "model": "kim-vocal-2"})["result"] == {"removed": False}
+        # un trabajo que pide un modelo no instalado da un error legible, sin matar el motor
+        reply = client.rpc({"id": 5, "cmd": "enhance", "input": "/no/existe.wav", "output": str(tmp_path / "o.wav"),
+                            "settings": {"separate_model": "kim-vocal-2", "denoise": False}}, timeout=60)  # fmt: skip
+        assert reply["ok"] is False
+        assert client.rpc({"id": 6, "cmd": "ping"})["result"] == "pong"
+    finally:
+        client.close()

@@ -3,6 +3,8 @@ export interface Settings {
   highpass_hz: number | null;
   notch_hz: 50 | 60 | null;
   notch_harmonics: number;
+  separate_model: string | null;
+  separate_strength: number;
   denoise: boolean;
   denoise_strength: number;
   normalize: boolean;
@@ -19,6 +21,8 @@ export const DEFAULT_SETTINGS: Settings = {
   highpass_hz: 80,
   notch_hz: null,
   notch_harmonics: 3,
+  separate_model: null,
+  separate_strength: 1,
   denoise: true,
   denoise_strength: 1,
   normalize: true,
@@ -40,6 +44,8 @@ export function sanitizeSettings(input: Partial<Settings> | null | undefined): S
     highpass_hz: s.highpass_hz === null ? null : clamp(num(s.highpass_hz, 80), 10, 500),
     notch_hz: s.notch_hz === 50 || s.notch_hz === 60 ? s.notch_hz : null,
     notch_harmonics: Math.round(clamp(num(s.notch_harmonics, 3), 1, 6)),
+    separate_model: typeof s.separate_model === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/.test(s.separate_model) ? s.separate_model : null,
+    separate_strength: clamp(num(s.separate_strength, 1), 0, 1),
     denoise: Boolean(s.denoise),
     denoise_strength: clamp(num(s.denoise_strength, 1), 0, 1),
     normalize: Boolean(s.normalize),

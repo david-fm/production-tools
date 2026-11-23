@@ -16,6 +16,41 @@ export const es = {
   modelInstalling: "Descargando modelo…",
   modelReady: "Modelo de reducción de ruido instalado",
 
+  // Modelos
+  models: "Modelos",
+  modelsTitle: "Modelos de audio",
+  modelsIntro:
+    "Los modelos no vienen con la app: se descargan desde su origen a tu equipo y se verifican. Instala solo los que necesites.",
+  modelsBack: "Volver",
+  modelStatus: { installed: "Instalado", missing: "No instalado", outdated: "Versión distinta (reinstalar)" } as Record<string, string>,
+  modelInstallBtn: "Instalar",
+  modelReinstallBtn: "Reinstalar",
+  modelRemoveBtn: "Quitar",
+  modelInUse: "En uso por un trabajo",
+  modelSize: (mb: number) => `${mb < 1 ? "<1" : Math.round(mb)} MB`,
+  modelLicense: (l: string) => `Licencia: ${l}`,
+  modelLicenseUnverified: "Licencia sin verificar",
+  modelConfirmTitle: "Antes de instalar",
+  modelConfirmBody: (name: string, license: string) =>
+    `“${name}” tiene una licencia sin verificar (${license}). Revisa que puedas usarlo para tu trabajo. Se descargará desde su origen.`,
+  modelConfirmYes: "Entiendo, instalar",
+  modelConfirmNo: "Cancelar",
+  modelUnverifiedWarning: "Modelo sin verificar: úsalo bajo tu responsabilidad.",
+  modelTasks: { denoise: "Reducir ruido", separate: "Aislar voz / quitar fondo", unknown: "Sin clasificar" } as Record<string, string>,
+  hfTitle: "Instalar desde Hugging Face",
+  hfHelp:
+    "Solo se aceptan archivos .onnx. Su origen y licencia no están verificados: la app los trata como no confiables y rechaza los que traen datos externos u operadores personalizados.",
+  hfRepo: "Repositorio (usuario/nombre)",
+  hfFile: "Archivo .onnx (si hay varios)",
+  hfInstall: "Descargar de Hugging Face",
+  hfLicenseUnknown: "desconocida",
+  separateStage: "Aislar voz / quitar fondo",
+  separateHelp: "Retira música o sonido de fondo dejando la voz. Se aplica antes de la reducción de ruido.",
+  separateStrength: "Intensidad del aislamiento",
+  separateNone: "No usar",
+  separateNeedsInstall: "Instala un modelo en «Modelos» para activar esta etapa.",
+  separateMissingNote: "El modelo elegido no está instalado: instálalo en «Modelos».",
+
   // Pantalla inicial
   howTitle: "Cómo funciona",
   steps: [
@@ -112,6 +147,7 @@ export const es = {
   processVideoHelp: "El video se copia sin recomprimir; solo cambia el audio.",
   cancel: "Cancelar",
   stages: {
+    descargando: "Descargando",
     decodificando: "Decodificando",
     procesando: "Procesando",
     uniendo: "Uniendo bloques",

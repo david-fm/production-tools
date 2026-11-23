@@ -2,6 +2,7 @@ import { useState } from "react";
 import { es } from "../i18n/es";
 import { BUILTIN_PRESETS, type CustomPreset } from "../presets";
 import type { Settings } from "../settings";
+import type { ModelInfo } from "./ModelsPanel";
 
 interface Props {
   settings: Settings;
@@ -10,6 +11,8 @@ interface Props {
   onSavePreset: (name: string) => void;
   onDeletePreset: (name: string) => void;
   disabled?: boolean;
+  /** Catálogo de modelos (opcional): habilita la etapa de aislar voz con los modelos instalados. */
+  models?: ModelInfo[];
 }
 
 const TARGETS = [
@@ -17,7 +20,7 @@ const TARGETS = [
   { value: -23, label: es.targetTv },
 ];
 
-export function SettingsPanel({ settings, onChange, customPresets, onSavePreset, onDeletePreset, disabled }: Props) {
+export function SettingsPanel({ settings, onChange, customPresets, onSavePreset, onDeletePreset, disabled, models = [] }: Props) {
   const [presetValue, setPresetValue] = useState("builtin:default");
   const [newName, setNewName] = useState("");
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => onChange({ ...settings, [key]: value });
@@ -78,6 +81,47 @@ export function SettingsPanel({ settings, onChange, customPresets, onSavePreset,
           )}
         </div>
       </div>
+
+      {models.some((m) => m.task === "separate" || m.task === "unknown") && (
+        <div className="field">
+          <label htmlFor="separate">{es.separateStage}</label>
+          <select
+            id="separate"
+            value={settings.separate_model ?? ""}
+            onChange={(e) => set("separate_model", e.target.value === "" ? null : e.target.value)}
+          >
+            <option value="">{es.separateNone}</option>
+            {models
+              .filter((m) => (m.task === "separate" || m.task === "unknown") && (m.status === "installed" || m.id === settings.separate_model))
+              .map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+          </select>
+          <p className="help">{es.separateHelp}</p>
+          {!models.some((m) => (m.task === "separate" || m.task === "unknown") && m.status === "installed") && (
+            <p className="help">{es.separateNeedsInstall}</p>
+          )}
+          {settings.separate_model && models.find((m) => m.id === settings.separate_model)?.status !== "installed" && (
+            <p className="warn">{es.separateMissingNote}</p>
+          )}
+          {settings.separate_model && (
+            <>
+              <label htmlFor="separate-strength">
+                {es.separateStrength}: {Math.round(settings.separate_strength * 100)} %
+              </label>
+              <input
+                id="separate-strength"
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={Math.round(settings.separate_strength * 100)}
+                onChange={(e) => set("separate_strength", Number(e.target.value) / 100)}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       <div className="field">
         <label className="check">

@@ -91,3 +91,29 @@ def test_frozen_binary_processes_audio_end_to_end(tmp_path, denoise):
         assert sf.info(tmp_path / "out.wav").frames == 8 * SR
     finally:
         client.close()
+
+
+@pytest.mark.skipif(_frozen_binary() is None, reason="sidecar congelado no construido")
+def test_frozen_binary_runs_the_separation_stage_and_lists_models(tmp_path):
+    """El adaptador MDX (STFT propio + scipy) y el gestor de modelos también funcionan congelados."""
+    from audio_enhancer_engine import models
+
+    try:
+        models.install("kim-vocal-2")
+    except (OSError, models.ModelError) as exc:
+        pytest.skip(f"modelo no disponible: {exc}")
+    src = write_wav(tmp_path / "in.wav", speechlike(6, 1))
+    client = EngineClient([str(_frozen_binary())], env=_ffmpeg_env(tmp_path))
+    try:
+        catalog = client.rpc({"id": 1, "cmd": "models_catalog"}, timeout=120)["result"]
+        assert {m["id"] for m in catalog} >= {"deepfilternet3", "kim-vocal-2"}
+        client.send({"id": 2, "cmd": "enhance", "input": str(src), "output": str(tmp_path / "out.wav"),
+                     "settings": {"denoise": False, "separate_model": "kim-vocal-2"}})  # fmt: skip
+        while True:
+            msg = client.recv(timeout=300)
+            if msg.get("id") == 2 and "ok" in msg:
+                break
+        assert msg["ok"] is True, msg
+        assert sf.info(tmp_path / "out.wav").frames == 6 * SR
+    finally:
+        client.close()

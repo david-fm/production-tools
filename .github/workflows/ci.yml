@@ -42,11 +42,11 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; else brew install ffmpeg; fi
-      - name: Modelo DeepFilterNet3 (caché)
+      - name: Modelos (caché: DeepFilterNet3 y Kim Vocal 2)
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/models
-          key: dfn3-c94d91f7
+          key: models-dfn3-c94d91f7-kim-ce74ef3b
       - name: Motor - lint
         working-directory: apps/audio-enhancer/engine
         run: uv sync --locked && uv run ruff check .

@@ -30,7 +30,7 @@ import numpy as np
 import soundfile as sf
 
 from . import ffmpeg_io
-from .denoise import Denoiser
+from .denoise import Chain, Denoiser
 from .dsp import apply_filter, build_filter
 from .loudness import LoudnessMeter
 from .settings import SAMPLE_RATE, Settings
@@ -217,13 +217,16 @@ def compute_block(source: Source, k: int, settings: Settings, denoiser: Denoiser
         except (ValueError, OSError, EOFError):
             path.unlink(missing_ok=True)  # corrupto: se recalcula
 
-    if settings.denoise and settings.denoise_strength > 0 and denoiser is None:
-        raise ValueError("Los ajustes piden reducción de ruido pero no se proporcionó ningún modelo.")
+    wants_model = (settings.denoise and settings.denoise_strength > 0) or settings.separate_model is not None
+    if wants_model and denoiser is None:
+        raise ValueError("Los ajustes piden un modelo de audio pero no se proporcionó ninguno.")
     s0, s1, w0, w1 = _block_bounds(source, k)
     window = source.read(w0, w1)
     dry = apply_filter(build_filter(settings), window)
     out = dry
-    if settings.denoise and denoiser is not None and settings.denoise_strength > 0:
+    if isinstance(denoiser, Chain):
+        out = np.stack([denoiser.enhance(dry[:, c]) for c in range(dry.shape[1])], axis=1).astype(np.float32)
+    elif settings.denoise and denoiser is not None and settings.denoise_strength > 0:
         wet = np.stack([denoiser.enhance(dry[:, c]) for c in range(dry.shape[1])], axis=1)
         s = settings.denoise_strength
         out = (s * wet + (1.0 - s) * dry).astype(np.float32)
@@ -308,8 +311,9 @@ def _check_paths(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> No
         raise ValueError("El archivo de salida no puede ser el mismo que el de entrada.")
 
 
-def _blocks_dir(source: Source, settings: Settings) -> Path:
-    return source.cache_dir / "blocks" / settings.processing_hash()
+def _blocks_dir(source: Source, settings: Settings, denoiser: Denoiser | None = None) -> Path:
+    fingerprints = getattr(denoiser, "fingerprints", None)
+    return source.cache_dir / "blocks" / settings.processing_hash(fingerprints)
 
 
 def render(
@@ -349,7 +353,7 @@ def render(
         if not 0 <= a < b <= source.n_samples:
             raise ValueError(f"La región {region} está fuera del audio (dura {source.n_samples / SAMPLE_RATE:.2f} s).")
 
-    blocks_dir = _blocks_dir(source, settings)
+    blocks_dir = _blocks_dir(source, settings, denoiser)
     first_k, last_k = max(0, (a - X) // B), min(n_blocks(source) - 1, (b + X - 1) // B)
     total = last_k - first_k + 1
     resumed = sum(1 for k in range(first_k, last_k + 1) if (blocks_dir / f"{k:06d}.npy").exists())

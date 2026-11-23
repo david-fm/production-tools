@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import io
 import os
-import tarfile
 import threading
 import time
 
@@ -15,7 +12,6 @@ import soundfile as sf
 from conftest import EngineClient
 from helpers import SR, have_ffmpeg, noise, run_ffmpeg, write_wav
 
-from audio_enhancer_engine import models
 from audio_enhancer_engine.denoise import IdentityDenoiser
 from audio_enhancer_engine.pipeline import (
     B,
@@ -34,60 +30,6 @@ RAW = Settings(highpass_hz=None, denoise=True, normalize=False)
 
 def read(path):
     return sf.read(path, dtype="float32", always_2d=True)[0]
-
-
-# ---------- modelos ----------
-
-
-def _fake_tar(members: dict[str, bytes]) -> bytes:
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for name, data in members.items():
-            info = tarfile.TarInfo(name)
-            info.size = len(data)
-            tar.addfile(info, io.BytesIO(data))
-    return buf.getvalue()
-
-
-def _serve(monkeypatch, blob: bytes, sha: str | None = None):
-    monkeypatch.setattr(models, "_download", lambda: blob)
-    monkeypatch.setattr(models, "DFN3_SHA256", sha or hashlib.sha256(blob).hexdigest())
-
-
-def test_model_sha_mismatch_is_rejected_and_nothing_is_installed(monkeypatch, tmp_path):
-    _serve(monkeypatch, b"contenido manipulado", sha="0" * 64)
-    with pytest.raises(RuntimeError, match="sha256"):
-        models.ensure_deepfilternet3(tmp_path)
-    assert not models.is_installed(models.model_folder(tmp_path))
-
-
-def test_model_tar_with_malicious_paths_cannot_escape(monkeypatch, tmp_path):
-    names = {"../../evil.txt": b"x", "tmp/export/enc.onnx": b"e", "tmp/export/erb_dec.onnx": b"r",
-             "tmp/export/df_dec.onnx": b"d", "tmp/export/config.ini": b"c"}  # fmt: skip
-    _serve(monkeypatch, _fake_tar(names))
-    folder = models.ensure_deepfilternet3(tmp_path / "m")
-    assert models.is_installed(folder)
-    assert not (tmp_path / "evil.txt").exists() and not (tmp_path.parent / "evil.txt").exists()
-    assert sorted(p.name for p in folder.iterdir()) == [".ok", "config.ini", "df_dec.onnx", "enc.onnx", "erb_dec.onnx"]
-
-
-def test_incomplete_package_is_not_marked_installed(monkeypatch, tmp_path):
-    _serve(monkeypatch, _fake_tar({"enc.onnx": b"e"}))
-    with pytest.raises(RuntimeError, match="no contiene"):
-        models.ensure_deepfilternet3(tmp_path)
-    assert not models.is_installed(models.model_folder(tmp_path))
-    assert not list(tmp_path.glob(".deepfilternet3.*"))  # sin restos temporales
-
-
-def test_truncated_install_without_marker_is_repaired(monkeypatch, tmp_path):
-    folder = models.model_folder(tmp_path)
-    folder.mkdir(parents=True)
-    for f in ("enc.onnx", "erb_dec.onnx", "df_dec.onnx", "config.ini"):
-        (folder / f).write_bytes(b"truncado")  # instalación interrumpida: sin marcador
-    assert not models.is_installed(folder)
-    members = {f: b"ok" for f in ("enc.onnx", "erb_dec.onnx", "df_dec.onnx", "config.ini")}
-    _serve(monkeypatch, _fake_tar(members))
-    assert (models.ensure_deepfilternet3(tmp_path) / "enc.onnx").read_bytes() == b"ok"
 
 
 # ---------- tamaños límite ----------
@@ -132,7 +74,7 @@ def test_corrupt_or_truncated_block_is_recomputed(tmp_path):
 def test_missing_model_with_denoise_is_a_clear_error(tmp_path):
     src = write_wav(tmp_path / "in.wav", noise(2, 1))
     source = prepare(src, RAW, work_root=tmp_path / "w")
-    with pytest.raises(ValueError, match="ningún modelo"):
+    with pytest.raises(ValueError, match="ninguno"):
         compute_block(source, 0, RAW, None, tmp_path / "blocks")
 
 

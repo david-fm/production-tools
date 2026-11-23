@@ -27,6 +27,22 @@ el proyecto original y en la exportación sin PyTorch de <https://huggingface.co
 
 Copyright (c) 2021 Hendrik Schröter. Licencias: <https://github.com/Rikorose/DeepFilterNet#license>.
 
+## Modelos descargables (no se redistribuyen)
+
+La app **no incluye ningún modelo**: cada uno se descarga desde su origen al equipo del usuario, que acepta su licencia
+al instalarlo. El catálogo muestra la licencia declarada y si está verificada.
+
+- **DeepFilterNet3**: MIT o Apache-2.0 (ver arriba). Origen: <https://github.com/Rikorose/DeepFilterNet>.
+- **Kim Vocal 2** (MDX-Net, Ultimate Vocal Remover): **licencia sin verificar**. Se descarga de
+  <https://huggingface.co/seanghay/uvr_models> (revisión fijada, sha256 verificado); el espejo declara MIT, pero los
+  pesos los entrenó la comunidad de UVR y no se ha comprobado la licencia en su origen.
+- **Modelos de Hugging Face añadidos por el usuario**: sin verificar; la responsabilidad de su licencia es de quien los instala.
+
+## Datos de prueba
+
+`engine/tests/data/speech_pd_8s.wav`: 8 s de "Dagon" (H. P. Lovecraft) leído por Michael Sample para LibriVox, **dominio
+público**. Origen: <https://commons.wikimedia.org/wiki/File:Dagon_lovecraft_mras.ogg>. Solo se usa en tests.
+
 ## Bibliotecas de Python y JavaScript
 
 ONNX Runtime (MIT), NumPy (BSD-3), SciPy (BSD-3), python-soundfile / libsndfile (BSD-3 / LGPL-2.1),

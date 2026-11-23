@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { es } from "../i18n/es";
 import { DEFAULT_SETTINGS } from "../settings";
+import type { ModelInfo } from "./ModelsPanel";
 import { SettingsPanel } from "./SettingsPanel";
 
 const setup = (over = {}) => {
@@ -54,5 +55,40 @@ describe("SettingsPanel", () => {
     const { onChange } = setup();
     await userEvent.selectOptions(screen.getByLabelText(es.notch), "60");
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ notch_hz: 60 }));
+  });
+
+  describe("etapa de aislar voz", () => {
+    const kim: ModelInfo = { id: "kim-vocal-2", name: "Kim Vocal 2", task: "separate", description: "", license: "?", license_url: "",
+      verified_license: false, default: false, size_bytes: 1, status: "installed", source: "catalog", in_use: false };
+    const mount = (models: ModelInfo[], over = {}) => {
+      const onChange = vi.fn();
+      render(<SettingsPanel settings={{ ...DEFAULT_SETTINGS, ...over }} onChange={onChange} customPresets={[]}
+                            onSavePreset={vi.fn()} onDeletePreset={vi.fn()} models={models} />);
+      return onChange;
+    };
+
+    it("no aparece si el catálogo no tiene modelos de separación", () => {
+      mount([]);
+      expect(screen.queryByLabelText(es.separateStage)).toBeNull();
+    });
+
+    it("lista solo los modelos instalados y permite elegir uno", async () => {
+      const onChange = mount([kim, { ...kim, id: "otro", name: "Otro", status: "missing" }]);
+      const select = screen.getByLabelText(es.separateStage);
+      expect(screen.queryByRole("option", { name: "Otro" })).toBeNull();
+      await userEvent.selectOptions(select, "kim-vocal-2");
+      expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ separate_model: "kim-vocal-2" }));
+    });
+
+    it("avisa si hay que instalar un modelo y muestra la intensidad al elegir uno", () => {
+      mount([{ ...kim, status: "missing" }]);
+      expect(screen.getByText(es.separateNeedsInstall)).toBeInTheDocument();
+    });
+
+    it("muestra la intensidad y avisa si el modelo elegido ya no está instalado", () => {
+      mount([{ ...kim, status: "missing" }], { separate_model: "kim-vocal-2" });
+      expect(screen.getByLabelText(new RegExp(es.separateStrength))).toBeInTheDocument();
+      expect(screen.getByText(es.separateMissingNote)).toBeInTheDocument();
+    });
   });
 });

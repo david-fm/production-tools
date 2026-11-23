@@ -117,6 +117,15 @@ try {
     await page2.getByRole("button", { name: "Descargar modelo ahora" }).click();
     await page2.getByText(/modelo de reducción de ruido/).waitFor({ state: "detached", timeout: 120_000 });
     check(existsSync(join(work, "modelos-vacios", "deepfilternet3", "enc.onnx")), "el modelo se descargó, verificó e instaló");
+    // Pantalla de modelos: catálogo real desde el motor
+    await page2.getByRole("button", { name: "Modelos", exact: true }).click();
+    await page2.getByText("Kim Vocal 2 (aislar voz)").waitFor({ timeout: 30_000 });
+    check(await page2.getByText("Licencia sin verificar").count() >= 1, "el catálogo muestra la licencia sin verificar de Kim Vocal 2");
+    check(await page2.getByRole("button", { name: "Quitar" }).count() === 1, "DeepFilterNet3 aparece instalado y Kim Vocal 2 no");
+    await page2.getByRole("button", { name: "Instalar" }).click();
+    await page2.getByRole("alertdialog").waitFor();
+    check(!existsSync(join(work, "modelos-vacios", "kim-vocal-2")), "sin confirmar, el modelo no se descarga");
+    await page2.screenshot({ path: join(out, "10-modelos.png"), fullPage: true });
   } finally {
     bridge2.close();
   }

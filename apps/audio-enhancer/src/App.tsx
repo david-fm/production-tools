@@ -4,6 +4,7 @@ import { appCacheDir, join } from "@tauri-apps/api/path";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ABPlayer } from "./components/ABPlayer";
+import { ModelsPanel, type ModelInfo } from "./components/ModelsPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { Waveform, type Peaks } from "./components/Waveform";
 import { cancelJob, engineCall, LONG_TIMEOUT_S, onEngineProgress, type EngineProgress } from "./engine";
@@ -40,6 +41,8 @@ export function App() {
   const [playhead, setPlayhead] = useState<number | null>(null);
   const [result, setResult] = useState<JobResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showModels, setShowModels] = useState(false);
+  const [catalog, setCatalog] = useState<ModelInfo[]>([]);
   const [cacheBytes, setCacheBytes] = useState<number | null>(null);
   const activeJob = useRef<string | null>(null);
   const busyRef = useRef(false); // síncrono: evita arrancar dos trabajos antes de que React re-renderice
@@ -50,6 +53,10 @@ export function App() {
 
   const refreshCache = useCallback(() => {
     engineCall<{ bytes: number }>("cache_info").then((r) => setCacheBytes(r.bytes)).catch(() => setCacheBytes(null));
+  }, []);
+
+  const refreshCatalog = useCallback(() => {
+    engineCall<ModelInfo[] | null>("models_catalog").then((r) => setCatalog(r ?? [])).catch(() => setCatalog([]));
   }, []);
 
   // --- Motor: comprobación con reintentos (puede estar reiniciándose) ---
@@ -67,6 +74,7 @@ export function App() {
         setModelInstalled(models.deepfilternet3.installed);
         setEngineOk(true);
         refreshCache();
+        refreshCatalog();
       } catch (e) {
         if (cancelled) return;
         setEngineOk(false);
@@ -76,7 +84,7 @@ export function App() {
     };
     void check();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [refreshCache]);
+  }, [refreshCache, refreshCatalog]);
 
   // --- Progreso de trabajos ---
   useEffect(() => {
@@ -223,7 +231,18 @@ export function App() {
           {engineStatus}
           {engineOk && providers.length > 0 && <> · {es.accel}: {providers[0].replace("ExecutionProvider", "").replace(/^Cpu$/i, es.accelCpu).replace("Dml", "GPU (DirectML)")}</>}
         </p>
+        {engineOk && !showModels && <button type="button" onClick={() => setShowModels(true)} disabled={working}>{es.models}</button>}
       </header>
+
+      {showModels && (
+        <ModelsPanel
+          onClose={() => setShowModels(false)}
+          onChanged={() => {
+            refreshCatalog();
+            engineCall<{ deepfilternet3: { installed: boolean } }>("models_status").then((m) => setModelInstalled(m.deepfilternet3.installed)).catch(() => undefined);
+          }}
+        />
+      )}
 
       {modelInstalled === false && (
         <div className="banner" role="note">
@@ -241,6 +260,7 @@ export function App() {
       )}
       {notice && <div className="banner" role="status"><p>{notice}</p></div>}
 
+      <div hidden={showModels}>
       <section className="file">
         <button type="button" className="primary" onClick={chooseFile} disabled={working || !engineOk}>{es.openFile}</button>
         <span className="hint">{es.dropHint}</span>
@@ -329,6 +349,7 @@ export function App() {
               disabled={working}
               customPresets={customPresets}
               onSavePreset={(name) => { const next = upsertPreset(customPresets, name, settings); setCustomPresets(next); saveCustomPresets(next); }}
+              models={catalog}
               onDeletePreset={(name) => { const next = customPresets.filter((p) => p.name !== name); setCustomPresets(next); saveCustomPresets(next); }}
             />
           </aside>
@@ -341,6 +362,7 @@ export function App() {
           <button type="button" onClick={clearCache} disabled={working} title={es.clearCacheHelp}>{es.clearCache}</button>
         </footer>
       )}
+      </div>
     </main>
   );
 }

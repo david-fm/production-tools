@@ -31,6 +31,22 @@ class Denoiser(Protocol):
     def enhance(self, audio: np.ndarray) -> np.ndarray: ...
 
 
+class Chain:
+    """Etapas en orden fijo (separar -> reducir ruido), cada una con su intensidad (mezcla con la entrada de la etapa)."""
+
+    def __init__(self, stages: list[tuple[Denoiser, float]], fingerprints: dict[str, str], providers: list[str]) -> None:
+        self.stages, self.fingerprints, self.providers = stages, fingerprints, providers
+
+    def enhance(self, audio: np.ndarray) -> np.ndarray:
+        x = audio.astype(np.float32, copy=False)
+        for model, strength in self.stages:
+            if strength <= 0:
+                continue
+            wet = model.enhance(x)
+            x = wet if strength >= 1 else (strength * wet + (1.0 - strength) * x).astype(np.float32)
+        return x.astype(np.float32, copy=False)
+
+
 class IdentityDenoiser:
     """Modelo nulo para tests: devuelve la entrada."""
 

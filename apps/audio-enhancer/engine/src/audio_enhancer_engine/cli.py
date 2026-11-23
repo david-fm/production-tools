@@ -6,8 +6,8 @@ import argparse
 import json
 import sys
 
-from . import ffmpeg_io
-from .denoise import DeepFilterNet3, IdentityDenoiser
+from . import ffmpeg_io, models, stages
+from .denoise import IdentityDenoiser
 from .models import ensure_deepfilternet3
 from .pipeline import Cancelled, render, render_remux
 from .settings import Settings
@@ -39,11 +39,16 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_dict(json.loads(args.settings)) if args.settings else Settings()
         denoiser = None
         providers: list[str] = []
-        if settings.denoise and not args.no_model:
-            model = DeepFilterNet3(ensure_deepfilternet3())
-            denoiser, providers = model, model.providers
-        elif args.no_model:
+        if args.no_model:
             denoiser = IdentityDenoiser()
+        else:
+            ids = stages.needed_models(settings)
+            if "deepfilternet3" in ids:
+                ensure_deepfilternet3()
+            reservation = models.use_models(ids)
+            reservation.__enter__()
+            denoiser = stages.build_chain(settings)
+            providers = list(denoiser.providers) if denoiser else []
 
         def show(value: float, stage: str) -> None:
             print(f"\r{stage:<14}{value * 100:5.1f}%", end="", file=sys.stderr, flush=True)

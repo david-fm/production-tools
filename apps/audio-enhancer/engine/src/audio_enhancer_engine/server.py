@@ -129,21 +129,6 @@ def _providers(request: dict[str, Any], out: IO[str]) -> Callable[[threading.Eve
     return work
 
 
-_denoiser_cache: dict[str, Any] = {}
-_denoiser_lock = threading.Lock()
-
-
-def get_denoiser() -> Any:
-    """Carga DeepFilterNet3 una sola vez (descargándolo y verificándolo la primera vez)."""
-    with _denoiser_lock:  # dos trabajos simultáneos no cargan (ni descargan) el modelo dos veces
-        if "dfn3" not in _denoiser_cache:
-            from .denoise import DeepFilterNet3
-            from .models import ensure_deepfilternet3
-
-            _denoiser_cache["dfn3"] = DeepFilterNet3(ensure_deepfilternet3())
-        return _denoiser_cache["dfn3"]
-
-
 def _job(
     request: dict[str, Any], out: IO[str], fn: Callable[[Callable[[float, str], None], Callable[[], bool]], Any]
 ) -> Callable[[threading.Event], None]:
@@ -152,6 +137,7 @@ def _job(
 
     def work(token: threading.Event) -> None:
         from .ffmpeg_io import FfmpegError
+        from .models import ModelError
         from .pipeline import Cancelled, InsufficientDisk
 
         def progress(value: float, stage: str) -> None:
@@ -162,7 +148,7 @@ def _job(
             send(out, {"id": req_id, "ok": True, "result": fn(progress, token.is_set)})
         except Cancelled:
             send(out, {"id": req_id, "ok": False, "error": "cancelado"})
-        except (FfmpegError, InsufficientDisk, ValueError, OSError) as exc:
+        except (FfmpegError, InsufficientDisk, ModelError, ValueError, OSError) as exc:
             send(out, {"id": req_id, "ok": False, "error": str(exc)})
 
     return work
@@ -208,16 +194,21 @@ def _enhance(request: dict[str, Any], out: IO[str]) -> Callable[[threading.Event
     remux = bool(request.get("remux", False))
 
     def run(progress: Callable[[float, str], None], cancelled: Callable[[], bool]) -> dict[str, Any]:
+        from . import models, stages
         from .pipeline import render_remux
 
-        model = get_denoiser() if settings.denoise else None
-        kwargs: dict[str, Any] = {
-            "region": region, "audio_index": audio_index, "progress": progress, "cancelled": cancelled,
-            "providers": list(model.providers) if model else [],
-        }  # fmt: skip
-        if remux:
-            return render_remux(src, dst, settings, model, **kwargs).__dict__
-        return render(src, dst, settings, model, **kwargs).__dict__
+        ids = stages.needed_models(settings)
+        if "deepfilternet3" in ids:  # comportamiento de v0.1.0: se descarga solo si falta
+            models.install("deepfilternet3", progress=progress, cancelled=cancelled)
+        with models.use_models(ids):  # los modelos no se pueden quitar mientras dura el trabajo
+            chain = stages.build_chain(settings)
+            kwargs: dict[str, Any] = {
+                "region": region, "audio_index": audio_index, "progress": progress, "cancelled": cancelled,
+                "providers": list(chain.providers) if chain else [],
+            }  # fmt: skip
+            if remux:
+                return render_remux(src, dst, settings, chain, **kwargs).__dict__
+            return render(src, dst, settings, chain, **kwargs).__dict__
 
     return _job(request, out, run)
 
@@ -263,10 +254,18 @@ def _cmd_preferred_providers(_request: dict[str, Any]) -> Any:
 
 
 def _cmd_models_status(_request: dict[str, Any]) -> Any:
-    from .models import is_installed, model_folder
+    """Compatible con v0.1.0: {deepfilternet3: {installed, path}} (App.test.tsx lo usa)."""
+    from . import models
 
-    folder = model_folder()
-    return {"deepfilternet3": {"installed": is_installed(folder), "path": str(folder)}}
+    e = models.CATALOG["deepfilternet3"]
+    return {"deepfilternet3": {"installed": models.entry_status(e) == "installed",
+                               "path": str(models.model_folder("deepfilternet3"))}}  # fmt: skip
+
+
+def _cmd_models_catalog(_request: dict[str, Any]) -> Any:
+    from . import models
+
+    return models.list_models()
 
 
 def _cmd_cache_info(_request: dict[str, Any]) -> Any:
@@ -283,10 +282,34 @@ def _cmd_clear_cache(_request: dict[str, Any]) -> Any:
     return {"freed_bytes": freed}
 
 
-def _cmd_install_model(_request: dict[str, Any]) -> Any:
-    from .models import ensure_deepfilternet3
+def _model_job(request: dict[str, Any], out: IO[str], fn: Callable[..., Any]) -> Callable[[threading.Event], None]:
+    return _job(request, out, lambda progress, cancelled: fn(progress, cancelled))
 
-    return {"path": str(ensure_deepfilternet3())}
+
+def _install_model(request: dict[str, Any], out: IO[str]) -> Callable[[threading.Event], None]:
+    from . import models
+
+    model_id = _require_str({"model": request.get("model", "deepfilternet3")}, "model")
+    return _model_job(request, out, lambda progress, cancelled: {
+        "path": str(models.install(model_id, progress=progress, cancelled=cancelled))})  # fmt: skip
+
+
+def _install_hf(request: dict[str, Any], out: IO[str]) -> Callable[[threading.Event], None]:
+    from . import models
+
+    repo = _require_str(request, "repo")
+    file = request.get("file")
+    if file is not None:
+        file = _require_str(request, "file")
+    return _model_job(request, out, lambda progress, cancelled: models.install_hf(
+        repo, file=file, progress=progress, cancelled=cancelled))  # fmt: skip
+
+
+def _remove_model(request: dict[str, Any], out: IO[str]) -> Callable[[threading.Event], None]:
+    from . import models
+
+    model_id = _require_str(request, "model")
+    return _model_job(request, out, lambda _p, _c: {"removed": models.remove(model_id)})
 
 
 def handle(request: dict[str, Any], out: IO[str], tasks: Tasks) -> bool:
@@ -319,8 +342,14 @@ def handle(request: dict[str, Any], out: IO[str], tasks: Tasks) -> bool:
             tasks.start(req_id, _simple(request, out, _cmd_clear_cache), out, key=_job_key(request))
         elif cmd == "models_status":
             tasks.start(req_id, _simple(request, out, _cmd_models_status), out)
+        elif cmd == "models_catalog":
+            tasks.start(req_id, _simple(request, out, _cmd_models_catalog), out)
         elif cmd == "install_model":
-            tasks.start(req_id, _simple(request, out, _cmd_install_model), out)
+            tasks.start(req_id, _install_model(request, out), out, key=_job_key(request))
+        elif cmd == "install_hf":
+            tasks.start(req_id, _install_hf(request, out), out, key=_job_key(request))
+        elif cmd == "remove_model":
+            tasks.start(req_id, _remove_model(request, out), out)
         elif cmd == "cancel":
             count = tasks.cancel(request.get("target"))
             send(out, {"id": req_id, "ok": True, "result": {"cancelled": count}})

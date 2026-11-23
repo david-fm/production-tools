@@ -57,3 +57,9 @@ legend { font-weight: 700; padding: 0.5rem 0; }
 .how h2 { margin-top: 0; }
 .how ol { padding-left: 1.25rem; line-height: 1.7; }
 .cache { display: flex; gap: 0.75rem; align-items: center; margin-top: 1.5rem; }
+
+.models { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin: 1rem 0; }
+.model-list { list-style: none; padding: 0; margin: 0.5rem 0; display: grid; gap: 0.75rem; }
+.model { display: flex; justify-content: space-between; gap: 1rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; }
+.warn { color: var(--danger); font-size: 0.85rem; margin: 0.25rem 0; }
+.banner.warn { border-color: var(--danger); }

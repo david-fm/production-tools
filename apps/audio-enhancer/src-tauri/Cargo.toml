@@ -1,6 +1,6 @@
 [package]
 name = "audio-enhancer"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Audio Enhancer: mejora la calidad del audio de grabaciones audiovisuales."
 license = "MIT"

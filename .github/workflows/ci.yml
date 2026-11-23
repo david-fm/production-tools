@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then choco install ffmpeg -y --no-progress; else brew install ffmpeg; fi
-      - name: Modelos (caché: DeepFilterNet3 y Kim Vocal 2)
+      - name: Modelos en caché (DeepFilterNet3 y Kim Vocal 2)
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/models
